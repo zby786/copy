@@ -1,21 +1,35 @@
 // ==UserScript==
-// @name         ChatGPT Copy Markdown + LaTeX
+// @name         AI Chat Copy Markdown + LaTeX
 // @namespace    https://github.com/DavidLin039/chatgpt-copy-markdown-latex
-// @version      0.1.0
-// @description  Select ChatGPT content and copy clean Markdown with original LaTeX preserved.
+// @version      0.2.0
+// @description  Select AI chat content (ChatGPT / DeepSeek / Kimi / Claude / Gemini / Doubao / Tongyi) and copy clean Markdown with original LaTeX preserved.
 // @author       Davenny
 // @license      MIT
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
+// @match        https://chat.deepseek.com/*
+// @match        https://kimi.com/*
+// @match        https://kimi.moonshot.cn/*
+// @match        https://claude.ai/*
+// @match        https://gemini.google.com/*
+// @match        https://www.doubao.com/*
+// @match        https://doubao.com/*
+// @match        https://tongyi.aliyun.com/*
+// @match        https://chat.qwen.ai/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
 
 /*
- * ChatGPT Copy Markdown + LaTeX
+ * AI Chat Copy Markdown + LaTeX
+ *
+ * Site-agnostic core: LaTeX recovery from KaTeX/MathJax, the HTML -> Markdown
+ * converter, code-block capture and the native-copy fallback work on ANY
+ * supported site. The only site-specific part is response-container detection,
+ * which lives in the SITE_PROFILES adapter table below.
  *
  * Design goals:
- * - Preserve normal rendered ChatGPT output while reading.
+ * - Preserve normal rendered chat output while reading.
  * - Ctrl/Cmd+C turns fully selected rendered equations into original LaTeX.
  * - Inline math -> $...$
  * - Display math -> $$ ... $$
@@ -64,11 +78,112 @@
         'math',
     ].join(',');
 
+    /*
+     * ---------------------------------------------------------------------
+     * Site adapter profiles
+     * ---------------------------------------------------------------------
+     * This table is the ONLY site-specific part of the script. Everything
+     * else (LaTeX recovery from KaTeX/MathJax, HTML -> Markdown conversion,
+     * code-block capture, native-copy fallback) is shared by all sites.
+     *
+     * To support a new site:
+     *   1. add an @match line in the metadata header above;
+     *   2. add one entry here.
+     *
+     * Fields:
+     *   hosts       - matched against location.hostname (subdomains included).
+     *   containers  - response-content container selectors, tried via
+     *                 Element.closest(); list specific first, broad last.
+     *   assistant   - OPTIONAL role selectors. When non-empty, the container
+     *                 must be inside one of them (e.g. ChatGPT assistant-only).
+     *                 When empty, any matched container is accepted.
+     *
+     * NOTE: ChatGPT and DeepSeek selectors are first-hand verified. The others
+     * are best-effort, based on public userscripts, and can drift as those sites
+     * ship new front-ends. If a site silently falls back to native copy, set
+     * CONFIG.debug = true, inspect a response element in DevTools, and update
+     * its `containers` list. Avoid broad `[class*="markdown"]` selectors when a
+     * site also puts "markdown" in its formula-element class (see the DeepSeek
+     * entry) - they can false-match the formula and break mixed selections.
+     */
+    const SITE_PROFILES = Object.freeze([
+        {
+            id: 'chatgpt',
+            hosts: ['chatgpt.com', 'chat.openai.com'],
+            containers: ['.markdown'],
+            assistant: ['[data-message-author-role="assistant"]'],
+        },
+        {
+            id: 'deepseek',
+            hosts: ['deepseek.com'],
+            // Verified live on chat.deepseek.com: the assistant answer body is
+            // <div class="ds-markdown ds-assistant-message-main-content"> and
+            // formulas render through KaTeX (<span class="katex-display
+            // ds-markdown-math">). A user question is NOT wrapped in .ds-markdown
+            // (it uses .ds-collapsible-text), so this container is assistant-only
+            // already; the role selector is an extra guard so that selecting your
+            // own question falls back to native copy.
+            // PITFALL: never use a broad [class*="ds-markdown"] here - it also
+            // matches the .ds-markdown-math formula span, which would split a
+            // mixed prose+formula selection across two "containers" and disable
+            // conversion.
+            containers: ['.ds-markdown', '.ds-assistant-message-main-content'],
+            assistant: ['.ds-assistant-message-main-content'],
+        },
+        {
+            id: 'kimi',
+            hosts: ['kimi.com', 'kimi.moonshot.cn', 'moonshot.cn'],
+            containers: ['.markdown-body', '[class*="markdown"]', '.message-content'],
+            assistant: [],
+        },
+        {
+            id: 'claude',
+            hosts: ['claude.ai'],
+            containers: ['.font-claude-message', '[data-test-render-count] .prose', '.prose'],
+            assistant: [],
+        },
+        {
+            id: 'gemini',
+            hosts: ['gemini.google.com'],
+            containers: ['model-response .markdown', 'message-content .markdown-main', '.markdown'],
+            assistant: [],
+        },
+        {
+            id: 'doubao',
+            hosts: ['doubao.com'],
+            containers: [
+                '[data-role="assistant"] [class*="markdown"]',
+                '.chat-message-item [class*="markdown"]',
+                '[class*="markdown"]',
+            ],
+            assistant: [],
+        },
+        {
+            id: 'tongyi',
+            hosts: ['tongyi.aliyun.com', 'tongyi.com', 'qwen.ai'],
+            containers: ['.markdown-body', '[class*="markdown"]'],
+            assistant: [],
+        },
+    ]);
+
+    function detectProfile() {
+        const host = location.hostname;
+        for (const profile of SITE_PROFILES) {
+            for (const h of profile.hosts) {
+                if (host === h || host.endsWith('.' + h)) return profile;
+            }
+        }
+        return null;
+    }
+
+    // Resolved once at load. Hostnames do not change within a chat SPA.
+    const PROFILE = detectProfile();
+
     const INVISIBLE_RE = /[\u200B\u200C\u200D\u2060\uFEFF]/g;
 
     function log(...args) {
         if (CONFIG.debug) {
-            console.debug('[ChatGPT Copy Markdown + LaTeX]', ...args);
+            console.debug('[AI Chat Copy Markdown + LaTeX]', ...args);
         }
     }
 
@@ -129,25 +244,29 @@
         ].join(',')));
     }
 
-    function getAssistantMarkdown(node) {
+    function matchesAny(el, selectors) {
+        if (!el || !selectors || !selectors.length) return false;
+        return Boolean(el.closest(selectors.join(',')));
+    }
+
+    function getMessageContainer(node) {
         const el = nodeElement(node);
-        if (!el) return null;
+        if (!el || !PROFILE) return null;
 
-        const markdown = el.closest('.markdown');
-        if (!markdown) return null;
+        // Nearest response-content container for the current site. Selectors
+        // are tried from specific to broad via Element.closest().
+        const container = el.closest(PROFILE.containers.join(','));
+        if (!container) return null;
 
-        if (!CONFIG.assistantOnly) return markdown;
+        if (!CONFIG.assistantOnly) return container;
 
-        const message = markdown.closest('[data-message-author-role]');
-        if (!message) {
-            // ChatGPT occasionally changes wrappers. A .markdown block is still
-            // a safer target than hijacking arbitrary page copy.
-            return markdown;
-        }
+        // Role gating applies only when the profile knows how to identify an
+        // assistant message. Profiles without role selectors accept any matched
+        // container; the same-container rule in shouldHandleSelection still
+        // keeps conversion inside ONE message.
+        if (!PROFILE.assistant.length) return container;
 
-        return message.getAttribute('data-message-author-role') === 'assistant'
-            ? markdown
-            : null;
+        return matchesAny(container, PROFILE.assistant) ? container : null;
     }
 
     function shouldHandleSelection(selection) {
@@ -159,15 +278,16 @@
             return null;
         }
 
-        const startMarkdown = getAssistantMarkdown(selection.anchorNode);
-        const endMarkdown = getAssistantMarkdown(selection.focusNode);
+        const startContainer = getMessageContainer(selection.anchorNode);
+        const endContainer = getMessageContainer(selection.focusNode);
 
-        // v0.1.0 deliberately avoids cross-response conversion.
-        if (!startMarkdown || !endMarkdown || startMarkdown !== endMarkdown) {
+        // Deliberately avoids cross-response conversion: both endpoints must
+        // resolve to the SAME message container.
+        if (!startContainer || !endContainer || startContainer !== endContainer) {
             return null;
         }
 
-        return startMarkdown;
+        return startContainer;
     }
 
     function getSourceAttributeLatex(root) {
@@ -779,7 +899,7 @@
         return normalizeLineEndings(markdown)
             .replace(/\u00A0/g, ' ')
             .replace(/[ \t]+\n/g, '\n')
-            .replace(/\n{4,}/g, '\n\n\n')
+            .replace(new RegExp(String.fromCharCode(10) + '{4,}', 'g'), String.fromCharCode(10).repeat(3))
             .trim();
     }
 
@@ -1122,7 +1242,7 @@
              * Native browser copy remains the fallback.
              */
             console.error(
-                '[ChatGPT Copy Markdown + LaTeX] Parser failed; using native copy:',
+                '[AI Chat Copy Markdown + LaTeX] Parser failed; using native copy:',
                 error
             );
         } finally {

@@ -1,6 +1,6 @@
 [English](README.EN.md) | [简体中文](README.md)
 
-# ChatGPT Copy Markdown + LaTeX
+# AI Chat Copy Markdown + LaTeX
 
 > **还在为 ChatGPT 里的公式一复制就变成乱码、碎掉的上下标、无法继续编辑的符号而苦恼？**
 
@@ -29,7 +29,25 @@ Ctrl+C / Cmd+C
 
 对于完整公式，只要 ChatGPT 页面中保留了可用的原始公式源码，脚本就会尽可能恢复原始 LaTeX。
 
-**公开版本状态：** `v0.1.0-beta`
+**公开版本状态：** `v0.2.0-beta`
+
+---
+
+## 支持的站点
+
+脚本的核心（KaTeX/MathJax 公式还原、HTML→Markdown 转换、代码块捕获、失败回退原生复制）与站点无关；唯一与站点相关的，是“识别一条回复容器”的选择器，它们集中在脚本顶部的 `SITE_PROFILES` 配置表里。
+
+| 站点 | 域名 | 状态 |
+|---|---|---|
+| ChatGPT | `chatgpt.com` / `chat.openai.com` | ✅ 已验证 |
+| DeepSeek | `chat.deepseek.com` | ✅ 已验证（KaTeX） |
+| Kimi | `kimi.com` / `kimi.moonshot.cn` | 🧪 best-effort |
+| Claude | `claude.ai` | 🧪 best-effort |
+| Gemini | `gemini.google.com` | 🧪 best-effort |
+| 豆包 | `doubao.com` | 🧪 best-effort |
+| 通义千问 | `tongyi.aliyun.com` / `chat.qwen.ai` | 🧪 best-effort |
+
+> **说明：** 除 ChatGPT、DeepSeek 外的选择器基于公开资料整理，未能逐一登录实测。这些站点的前端 DOM 会不定期改版；若某个站点悄悄退回了浏览器原生复制，把脚本里 `CONFIG.debug` 设为 `true`，在开发者工具里检查一条回复的容器元素，然后更新它在 `SITE_PROFILES` 里的 `containers` 即可。新增站点也只需：加一条 `@match` + 在表里加一项。
 
 ---
 
@@ -96,7 +114,7 @@ $$
 
 ### 能拿原始 LaTeX 就不猜
 
-对于完整公式，脚本优先读取 ChatGPT 当前页面中已经保存的 LaTeX，而不是把 Unicode 数学符号再反向猜成 LaTeX。
+对于完整公式，脚本优先读取当前页面（KaTeX/MathJax）中已经保存的 LaTeX，而不是把 Unicode 数学符号再反向猜成 LaTeX。
 
 ### 得到的是 Markdown，而不是富文本碎片
 
@@ -138,7 +156,7 @@ $$
 4. Tampermonkey 会自动弹出安装页面
 5. 点击 **安装**
 
-### 第三步：刷新 ChatGPT
+### 第三步：刷新目标站点
 
 
 打开或刷新：
@@ -215,9 +233,9 @@ ChatGPT 随时可能调整页面结构，因此不同浏览器以及不同版本
 
 ## 当前限制
 
-- ChatGPT 修改 DOM 后，脚本可能需要同步更新。
-- `v0.1.0-beta` 暂不转换跨多条回复的选择，这种情况会退回浏览器原生复制。
-- 只有当 ChatGPT 页面暴露了可用的公式源码时，完整公式才能恢复原始 LaTeX。
+- 任一支持站点修改 DOM 后，脚本对应的 `SITE_PROFILES` 选择器可能需要同步更新；除 ChatGPT、DeepSeek 外为 best-effort 适配。
+- 暂不转换跨多条回复的选择，这种情况会退回浏览器原生复制。
+- 只有当页面通过 KaTeX/MathJax 暴露了可用的公式源码时，完整公式才能恢复原始 LaTeX。
 - 部分公式是 best-effort 转换，复杂局部选择无法保证与原始 LaTeX 完全一致。
 - 图片属于 best-effort 处理，链接可能是临时 URL。
 - ChatGPT 引用组件可能需要额外做兼容处理。

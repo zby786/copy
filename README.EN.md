@@ -1,5 +1,5 @@
 [English](README.EN.md) | [简体中文](README.md)
-# ChatGPT Copy Markdown + LaTeX
+# AI Chat Copy Markdown + LaTeX
 
 > **Tired of ChatGPT equations turning into broken symbols, fragmented subscripts, or unusable text after copying?**
 
@@ -29,7 +29,25 @@ Clean Markdown + reusable LaTeX
 
 For complete equations, the script recovers the original LaTeX source exposed by ChatGPT whenever possible.
 
-**Public status:** `v0.1.0-beta`
+**Public status:** `v0.2.0-beta`
+
+---
+
+## Supported sites
+
+The core (KaTeX/MathJax LaTeX recovery, HTML to Markdown conversion, code-block capture, and the native-copy fallback) is site-agnostic. The only site-specific part is recognizing one response container, which lives in the `SITE_PROFILES` table at the top of the script.
+
+| Site | Domain | Status |
+|---|---|---|
+| ChatGPT | `chatgpt.com` / `chat.openai.com` | ✅ Verified |
+| DeepSeek | `chat.deepseek.com` | ✅ Verified (KaTeX) |
+| Kimi | `kimi.com` / `kimi.moonshot.cn` | 🧪 Best-effort |
+| Claude | `claude.ai` | 🧪 Best-effort |
+| Gemini | `gemini.google.com` | 🧪 Best-effort |
+| Doubao | `doubao.com` | 🧪 Best-effort |
+| Tongyi / Qwen | `tongyi.aliyun.com` / `chat.qwen.ai` | 🧪 Best-effort |
+
+> **Note:** Only the ChatGPT and DeepSeek selectors are first-hand verified; the others were compiled from public sources and could not all be tested live. These sites change their front-end DOM from time to time. If a site silently falls back to native copy, set `CONFIG.debug = true`, inspect a response container in DevTools, and update that site's `containers` in `SITE_PROFILES`. To add a new site: add one `@match` line plus one table entry.
 
 ---
 
@@ -96,7 +114,7 @@ There is no additional floating button or separate export workflow.
 
 ### Original LaTeX whenever available
 
-For complete equations, the script prefers LaTeX already stored in the live ChatGPT page instead of trying to reconstruct mathematical notation from Unicode characters.
+For complete equations, the script prefers LaTeX already stored in the live page (KaTeX/MathJax) instead of trying to reconstruct mathematical notation from Unicode characters.
 
 ### Markdown, not rich-text fragments
 
@@ -139,7 +157,7 @@ Everything runs inside your browser.
 5. Click **Install**
 
 
-### Step 3: Refresh ChatGPT
+### Step 3: Refresh the target site
 
 
 Open or reload:
@@ -214,9 +232,9 @@ ChatGPT can change its page structure at any time, so browser and DOM compatibil
 
 ## Current limitations
 
-- ChatGPT DOM changes may require script updates.
-- Cross-response selections are not converted in `v0.1.0-beta`; they fall back to native browser copy.
-- Complete equations can recover original LaTeX only when ChatGPT exposes a usable source in the page.
+- Any supported site's DOM changes may require updating its `SITE_PROFILES` selectors; all sites except ChatGPT and DeepSeek are best-effort.
+- Cross-response selections are not converted; they fall back to native browser copy.
+- Complete equations can recover original LaTeX only when the page exposes a usable source via KaTeX/MathJax.
 - Partial-equation conversion is best-effort and may not reproduce the exact original LaTeX for complex selections.
 - Images are best-effort and may reference temporary URLs.
 - ChatGPT citations may require additional compatibility handling.

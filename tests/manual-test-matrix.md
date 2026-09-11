@@ -10,6 +10,21 @@ Record:
 - Browser + version
 - Userscript manager + version
 - Script version
+- Site (ChatGPT / DeepSeek / Kimi / Claude / Gemini / Doubao / Tongyi)
+
+---
+
+# Multi-site note (v0.2.0+)
+
+Since v0.2.0 the script supports multiple AI chat sites through a `SITE_PROFILES`
+adapter table; the conversion core is site-agnostic. Before marking a site as
+verified, run at least P0-03, P0-04, P0-05, P0-10, P0-11 and P0-12 on that site.
+Currently only ChatGPT and DeepSeek are confirmed; Kimi, Claude, Gemini, Doubao
+and Tongyi/Qwen are best-effort and may need selector updates.
+
+If a site silently falls back to native copy, set `CONFIG.debug = true`, inspect a
+response container element in DevTools, and fix that site's `containers` in
+`SITE_PROFILES`.
 
 ---
 
