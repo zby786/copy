@@ -66,9 +66,23 @@
         'data-tex',
         'data-math',
         'data-original-tex',
+
+        // Some sites (e.g. Doubao) render KaTeX with MathML output disabled, so
+        // there is no annotation element to read; instead they keep the original
+        // TeX on the math wrapper in a copy-text attribute, inline or display
+        // delimited. cleanLatex() already strips those delimiters.
+        'copy-text',
     ]);
 
-    const SOURCE_SELECTOR = SOURCE_ATTRIBUTES.map(a => `[${a}]`).join(',');
+    // Attributes used to DISCOVER candidate math elements in MATH_QUERY. The
+    // generic-named copy-text is excluded here so a site that also sets
+    // copy-text on non-math nodes cannot have them mistaken for formulas. It is
+    // still READ (and still lets canonicalMathRoot climb to the wrapper) once we
+    // are already on a real math element such as .katex.
+    const SOURCE_SELECTOR = SOURCE_ATTRIBUTES
+        .filter(attr => attr !== 'copy-text')
+        .map(a => `[${a}]`)
+        .join(',');
 
     const MATH_QUERY = [
         SOURCE_SELECTOR,
@@ -183,7 +197,7 @@
 
     function log(...args) {
         if (CONFIG.debug) {
-            console.debug('[AI Chat Copy Markdown + LaTeX]', ...args);
+            console.log('[AI Chat Copy Markdown + LaTeX]', ...args);
         }
     }
 
@@ -271,10 +285,15 @@
 
     function shouldHandleSelection(selection) {
         if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) {
+            log('skip: need exactly one non-collapsed selection', {
+                rangeCount: selection && selection.rangeCount,
+                collapsed: selection && selection.isCollapsed,
+            });
             return null;
         }
 
         if (isEditable(selection.anchorNode) || isEditable(selection.focusNode)) {
+            log('skip: selection is inside an editable field (input/textarea/code editor)');
             return null;
         }
 
@@ -284,9 +303,15 @@
         // Deliberately avoids cross-response conversion: both endpoints must
         // resolve to the SAME message container.
         if (!startContainer || !endContainer || startContainer !== endContainer) {
+            log('skip: endpoints not in the same response container', {
+                start: startContainer,
+                end: endContainer,
+                hint: 'null = no SITE_PROFILES container matched; different = cross-message or a formula-only class split',
+            });
             return null;
         }
 
+        log('handle: response container =', startContainer);
         return startContainer;
     }
 
@@ -356,8 +381,33 @@
         return displayCandidate || mathJaxCandidate || katexCandidate;
     }
 
+    function getRawSourceAttribute(root) {
+        if (!root || root.nodeType !== Node.ELEMENT_NODE) return '';
+
+        const candidates = [root, ...root.querySelectorAll(SOURCE_SELECTOR)];
+
+        for (const candidate of candidates) {
+            for (const attr of SOURCE_ATTRIBUTES) {
+                const raw = candidate.getAttribute?.(attr);
+                if (raw) return raw;
+            }
+        }
+
+        return '';
+    }
+
     function isDisplayMath(root) {
         if (!root) return false;
+
+        // A stored TeX source keeps its own delimiters, and those are the most
+        // reliable display signal. Doubao, for example, stores copy-text="\[...\]"
+        // for block math and copy-text="\(...\)" for inline, and does not expose a
+        // .katex-display element - so honour the delimiter before the class and
+        // attribute heuristics below. cleanLatex() strips these later; here we read
+        // the RAW value so the signal is still intact.
+        const raw = getRawSourceAttribute(root).trim();
+        if (/^(?:\\\[|\$\$)/.test(raw)) return true;
+        if (/^(?:\\\(|\$)/.test(raw)) return false;
 
         if (
             root.matches?.('.katex-display, mjx-container[display="true"], math[display="block"]') ||
@@ -1021,10 +1071,12 @@
     }
 
     document.addEventListener('copy', function (event) {
+        log('copy event fired (capture phase)');
         const selection = window.getSelection();
         const markdownRoot = shouldHandleSelection(selection);
 
         if (!markdownRoot) {
+            log('native copy: selection not handled (reason logged above)');
             return; // Native copy.
         }
 
@@ -1075,12 +1127,15 @@
                 const latex = getLatex(sameMathRoot);
 
                 if (latex) {
+                    log('single formula: recovered LaTeX (length ' + latex.length + ')');
                     const markdown = mathToMarkdown({
                         latex,
                         display: isDisplayMath(sameMathRoot),
                     });
 
                     copyAsMarkdown(event, markdown.trim());
+                } else {
+                    log('single formula: no LaTeX source in DOM -> native copy');
                 }
 
                 return;
@@ -1168,6 +1223,8 @@
                 });
             }
 
+            log('math roots recovered with LaTeX:', orderedMathInfos.length);
+
             /*
              * Pre-capture FULL code blocks from LIVE DOM.
              * innerText is read while the PRE is still rendered, preserving
@@ -1231,9 +1288,14 @@
             const markdown = cleanupMarkdown(convertChildren(clone));
 
             if (!markdown) {
+                log('native copy: converted markdown was empty');
                 return; // Native copy.
             }
 
+            log('converted markdown ready:', {
+                length: markdown.length,
+                preview: markdown.slice(0, 120),
+            });
             copyAsMarkdown(event, markdown);
 
         } catch (error) {
@@ -1249,4 +1311,6 @@
             cleanupLiveMarkers(markedNodes);
         }
     }, true);
+
+    log('script loaded on', location.hostname, '| profile:', PROFILE ? PROFILE.id : '(none - host not in SITE_PROFILES)');
 })();
