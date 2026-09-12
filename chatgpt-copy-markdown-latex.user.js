@@ -396,6 +396,24 @@
         return '';
     }
 
+    // Multi-line LaTeX environments are display math by nature: KaTeX/MathJax
+    // render each as its own block. Some sites (e.g. Doubao) store such a block
+    // with an inline delimiter, or none at all, so the delimiter alone cannot be
+    // trusted; detect the environment itself. smallmatrix is excluded on purpose
+    // because it is designed for inline use.
+    const DISPLAY_MATH_ENVIRONMENTS = Object.freeze([
+        'align', 'align*', 'aligned', 'alignedat', 'alignedat*',
+        'gather', 'gather*', 'gathered', 'split',
+        'cases', 'dcases', 'rcases',
+        'matrix', 'pmatrix', 'bmatrix', 'Bmatrix', 'vmatrix', 'Vmatrix',
+        'array', 'eqnarray', 'eqnarray*', 'multline', 'multline*', 'CD',
+    ]);
+
+    function hasDisplayEnvironment(tex) {
+        if (!tex || tex.indexOf('\\begin{') === -1) return false;
+        return DISPLAY_MATH_ENVIRONMENTS.some(env => tex.includes('\\begin{' + env + '}'));
+    }
+
     function isDisplayMath(root) {
         if (!root) return false;
 
@@ -406,6 +424,13 @@
         // attribute heuristics below. cleanLatex() strips these later; here we read
         // the RAW value so the signal is still intact.
         const raw = getRawSourceAttribute(root).trim();
+
+        // A display-only environment wins even when the site wrapped it in an
+        // inline delimiter or none at all (Doubao does this for aligned/cases
+        // blocks). Check the raw source first (cheap), then fall back to the
+        // recovered LaTeX for annotation-only sites like DeepSeek and ChatGPT.
+        if (hasDisplayEnvironment(raw) || hasDisplayEnvironment(getLatex(root))) return true;
+
         if (/^(?:\\\[|\$\$)/.test(raw)) return true;
         if (/^(?:\\\(|\$)/.test(raw)) return false;
 
